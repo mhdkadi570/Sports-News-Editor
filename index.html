@@ -1,340 +1,122 @@
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>محرر أخبار كرة القدم — API-SPORTS</title>
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <meta charset="UTF-8">
+  <title>📰 مولّد أخبار كرة القدم</title>
   <style>
-    body { background:#f8f9fa; }
-    .card { border-radius: 1rem; }
-    textarea { font-size: 1.06rem; line-height: 1.9; }
-    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Courier New", monospace; }
-    .spinner { display:inline-block; width:1.1rem; height:1.1rem; border:.18rem solid #ddd; border-top-color:#0d6efd; border-radius:50%; animation:spin 1s linear infinite; vertical-align:middle; }
-    @keyframes spin { to { transform: rotate(360deg); } }
-    code { direction:ltr; unicode-bidi:bidi-override; }
+    body { font-family: Tahoma, sans-serif; margin: 20px; background: #f9f9f9; }
+    h1 { color: #333; }
+    select, button, textarea { margin-top: 10px; display: block; }
+    select, button { padding: 8px; }
+    textarea { width: 100%; height: 220px; }
   </style>
 </head>
-<body class="p-3 p-md-4">
+<body>
+  <h1>📰 محرر أخبار المباريات</h1>
 
-<div class="container">
-  <h3 class="mb-3">📰 محرر أخبار نتائج كرة القدم</h3>
+  <label>اختر المباراة:</label>
+  <select id="matches"></select>
+  <button onclick="generateNews()">إنشاء الخبر</button>
 
-  <!-- API & Date -->
-  <div class="card shadow-sm mb-3">
-    <div class="card-body">
-      <div class="row g-3 align-items-end">
-        <div class="col-md-3">
-          <label class="form-label">المزوّد</label>
-          <select id="provider" class="form-select">
-            <option value="apisports" selected>API-SPORTS (موصى به)</option>
-            <option value="rapidapi">RapidAPI</option>
-          </select>
-          <div class="form-text">
-            API-SPORTS: <code>https://v3.football.api-sports.io</code><br/>
-            RapidAPI: <code>https://api-football-v1.p.rapidapi.com/v3</code>
-          </div>
-        </div>
-        <div class="col-md-5">
-          <label class="form-label">API Key</label>
-          <input id="apiKey" class="form-control mono" type="password" placeholder="ألصق مفتاحك هنا">
-          <div class="form-text">API-SPORTS: رأس <code>x-apisports-key</code> — RapidAPI: رأس <code>x-rapidapi-key</code>.</div>
-        </div>
-        <div class="col-md-2">
-          <label class="form-label">اليوم</label>
-          <select id="daySelect" class="form-select">
-            <option value="today">اليوم</option>
-            <option value="yesterday">الأمس</option>
-          </select>
-        </div>
-        <div class="col-md-2">
-          <label class="form-label">تاريخ (اختياري)</label>
-          <input id="dateManual" type="date" class="form-control">
-          <div class="form-text">يفضل تركه فارغًا والاكتفاء باليوم/الأمس.</div>
-        </div>
-      </div>
-    </div>
-  </div>
+  <h2>النص الناتج:</h2>
+  <textarea id="newsOutput"></textarea>
 
-  <!-- League & Matches -->
-  <div class="card shadow-sm mb-3">
-    <div class="card-body">
-      <div class="row g-3">
-        <div class="col-md-6">
-          <label class="form-label">الدوري (قائمة جاهزة)</label>
-          <select id="leagueSelect" class="form-select">
-            <!-- أشهر الدوريات (API-FOOTBALL IDs) -->
-            <option value="39">الدوري الإنجليزي الممتاز (39)</option>
-            <option value="140">الدوري الإسباني (140)</option>
-            <option value="135">الدوري الإيطالي (135)</option>
-            <option value="78">الدوري الألماني (78)</option>
-            <option value="61">الدوري الفرنسي (61)</option>
-            <option value="2">دوري أبطال أوروبا (2)</option>
-            <option value="3">الدوري الأوروبي (3)</option>
-          </select>
-          <div class="form-text">يمكنك أيضًا إدخال League ID يدويًا بالأسفل.</div>
-        </div>
-        <div class="col-md-6">
-          <label class="form-label">League ID (اختياري)</label>
-          <input id="leagueIdManual" class="form-control mono" type="text" placeholder="مثال: 39 — إن أدخلته سيتجاهل القائمة أعلاه">
-        </div>
-      </div>
+  <script>
+    const apiKey = "YOUR_API_KEY_HERE"; // ضع مفتاحك هنا
 
-      <div class="row g-3 mt-1 align-items-end">
-        <div class="col-md-8">
-          <label class="form-label">المباراة</label>
-          <select id="matchSelect" class="form-select">
-            <option value="">— اختر الدوري ثم اضغط «تحميل المباريات» —</option>
-          </select>
-        </div>
-        <div class="col-md-4 d-grid">
-          <button id="loadMatchesBtn" class="btn btn-primary">📥 تحميل المباريات</button>
-        </div>
-      </div>
+    // جلب مباريات اليوم والأمس
+    async function loadMatches() {
+      const today = new Date();
+      const yesterday = new Date();
+      yesterday.setDate(today.getDate() - 1);
 
-      <div id="statusArea" class="mt-3 text-muted small"></div>
-    </div>
-  </div>
+      const formatDate = d => d.toISOString().split("T")[0];
 
-  <!-- Controls & Output -->
-  <div class="card shadow-sm">
-    <div class="card-body">
-      <div class="row g-3">
-        <div class="col-md-4">
-          <label class="form-label">لغة الجولة</label>
-          <select id="roundLang" class="form-select">
-            <option value="arabic" selected>عربي (الجولة 7)</option>
-            <option value="raw">كما في الـ API</option>
-          </select>
-        </div>
-        <div class="col-md-8 d-grid d-md-flex gap-2">
-          <button id="generateBtn" class="btn btn-success flex-fill" disabled>✍️ توليد الخبر</button>
-          <button id="rephraseBtn" class="btn btn-outline-primary flex-fill" disabled>🔁 غيّر الصياغة</button>
-          <button id="copyBtn" class="btn btn-outline-dark flex-fill" disabled>📋 نسخ النص</button>
-          <button id="clearBtn" class="btn btn-outline-danger flex-fill">🧹 مسح</button>
-        </div>
-      </div>
+      const urls = [
+        `https://v3.football.api-sports.io/fixtures?date=${formatDate(today)}`,
+        `https://v3.football.api-sports.io/fixtures?date=${formatDate(yesterday)}`
+      ];
 
-      <div class="mt-3">
-        <label class="form-label">النص الإخباري</label>
-        <textarea id="newsOutput" rows="12" class="form-control" placeholder="سيظهر الخبر هنا..."></textarea>
-      </div>
-    </div>
-  </div>
+      let allMatches = [];
 
-  <div class="text-muted small mt-3">
-    **ملاحظة أمان**: اجعل المفتاح مقيّدًا على نطاق GitHub Pages الخاص بك من لوحة API-FOOTBALL.
-  </div>
-</div>
+      for (let url of urls) {
+        const res = await fetch(url, { headers: { "x-apisports-key": apiKey } });
+        const data = await res.json();
+        allMatches = allMatches.concat(data.response);
+      }
 
-<script>
-/* ========== Helpers ========== */
-const HOSTS = {
-  apisports: "https://v3.football.api-sports.io",
-  rapidapi: "https://api-football-v1.p.rapidapi.com/v3"
-};
-const $ = id => document.getElementById(id);
-function setStatus(html){ $("statusArea").innerHTML = html || ""; }
-function fmtNum(n){ return new Intl.NumberFormat('ar-EG').format(n); }
-function minuteArabic(m){ const x=parseInt(m,10); return isNaN(x)?`الدقيقة ${m}`:`الدقيقة ${fmtNum(x)}`; }
-function toArabicRound(roundStr){
-  if(!roundStr) return "";
-  const m = roundStr.match(/-\s*(\d+)/);
-  return m ? `الجولة ${m[1]}` : roundStr;
-}
-function getHost(){ return HOSTS[$("provider").value] || HOSTS.apisports; }
-function getHeaders(){
-  const key = $("apiKey").value.trim();
-  if(!key) throw new Error("يرجى لصق API Key.");
-  return ($("provider").value==="apisports")
-    ? { "x-apisports-key": key }
-    : { "x-rapidapi-key": key, "x-rapidapi-host": "api-football-v1.p.rapidapi.com" };
-}
-function getLeagueId(){ return $("leagueIdManual").value.trim() || $("leagueSelect").value; }
-function getYMD(){
-  const manual = $("dateManual").value;
-  if (manual) return manual; // YYYY-MM-DD
-  const d = new Date();
-  if ($("daySelect").value === "yesterday") d.setDate(d.getDate()-1);
-  return d.toISOString().slice(0,10);
-}
-async function httpGet(path, {timeoutMs=12000}={}){
-  const controller = new AbortController();
-  const timer = setTimeout(()=>controller.abort(), timeoutMs);
-  try{
-    const res = await fetch(getHost()+path, { headers: getHeaders(), signal: controller.signal });
-    if(!res.ok){
-      const txt = await res.text();
-      throw new Error(`HTTP ${res.status}: ${txt}`);
+      const select = document.getElementById("matches");
+      allMatches.forEach(m => {
+        const opt = document.createElement("option");
+        opt.value = m.fixture.id;
+        opt.textContent = `${m.teams.home.name} vs ${m.teams.away.name} (${m.league.name})`;
+        select.appendChild(opt);
+      });
     }
-    return await res.json();
-  }catch(e){
-    if(e.name==="AbortError") throw new Error("انتهت المهلة. أعد المحاولة.");
-    throw e;
-  }finally{ clearTimeout(timer); }
-}
 
-/* ========== Smart Fixtures Fetch ========== */
-async function tryFixtures(urls) {
-  let lastUrl = "", lastErr = null;
-  for (const u of urls) {
-    try {
-      const data = await httpGet(u);
-      const arr = data.response || [];
-      if (arr.length) return { ok: true, url: u, fixtures: arr };
-      lastUrl = u;
-    } catch (e) { lastUrl = u; lastErr = e; }
-  }
-  return { ok: false, url: lastUrl, fixtures: [], err: lastErr };
-}
+    // توليد الخبر
+    async function generateNews() {
+      const matchId = document.getElementById("matches").value;
 
-/* ========== Load Matches ========== */
-document.getElementById("loadMatchesBtn").onclick = async () => {
-  const leagueId = getLeagueId();
-  if(!leagueId){ alert("اختر الدوري أو أدخل League ID."); return; }
-  const ymd = getYMD();
+      try {
+        const res = await fetch(`https://v3.football.api-sports.io/fixtures?id=${matchId}`, {
+          headers: { "x-apisports-key": apiKey }
+        });
+        const data = await res.json();
+        const match = data.response[0];
 
-  setStatus(`جلب مباريات ${ymd} للدوري ${leagueId}… <span class="spinner"></span>`);
-  $("matchSelect").innerHTML = `<option>جاري التحميل...</option>`;
-  $("generateBtn").disabled = true;
+        const league = match.league.name;
+        const round = match.league.round;
+        const home = match.teams.home.name;
+        const away = match.teams.away.name;
+        const goalsHome = match.goals.home;
+        const goalsAway = match.goals.away;
 
-  const urls = [
-    `/fixtures?league=${encodeURIComponent(leagueId)}&date=${ymd}&timezone=Asia/Qatar`,
-    `/fixtures?league=${encodeURIComponent(leagueId)}&date=${ymd}`,
-    `/fixtures?league=${encodeURIComponent(leagueId)}&from=${ymd}T00:00&to=${ymd}T23:59&timezone=Asia/Qatar`,
-    `/fixtures?from=${ymd}T00:00&to=${ymd}T23:59&timezone=Asia/Qatar`
-  ];
-  const res = await tryFixtures(urls);
+        // أحداث المباراة
+        const eventsRes = await fetch(`https://v3.football.api-sports.io/fixtures/events?fixture=${matchId}`, {
+          headers: { "x-apisports-key": apiKey }
+        });
+        const eventsData = await eventsRes.json();
 
-  let fixtures = res.fixtures;
-  if (res.ok && res.url.startsWith("/fixtures?from=")) {
-    // آخر محاولة بدون league → رشّح محليًا
-    fixtures = fixtures.filter(f => String(f.league?.id) === String(leagueId));
-  }
+        let goalsText = "";
+        let redCards = "";
 
-  if (!res.ok || !fixtures.length) {
-    setStatus(`<span class="text-danger">لا توجد مباريات حسب مدخلاتك. آخر محاولة: <code>${res.url || "—"}</code>${res.err ? " — " + res.err : ""}</span>`);
-    $("matchSelect").innerHTML = `<option value="">لا مباريات</option>`;
-    return;
-  }
+        eventsData.response.forEach(ev => {
+          if (ev.type === "Goal") {
+            goalsText += `${ev.player.name} سجل في الدقيقة ${ev.time.elapsed}. `;
+          }
+          if (ev.type === "Card" && ev.detail === "Red Card") {
+            redCards += `بطاقة حمراء لـ ${ev.player.name} في الدقيقة ${ev.time.elapsed}. `;
+          }
+        });
 
-  $("matchSelect").innerHTML = "";
-  fixtures.forEach(f => {
-    const opt = document.createElement("option");
-    opt.value = JSON.stringify({
-      fixtureId: f.fixture.id,
-      leagueId: leagueId,
-      season: f.league?.season,
-      homeId: f.teams?.home?.id,
-      awayId: f.teams?.away?.id
-    });
-    opt.textContent = `${f.teams.home.name} ضد ${f.teams.away.name} — ${(f.goals.home ?? "")}:${(f.goals.away ?? "")}`;
-    $("matchSelect").appendChild(opt);
-  });
+        // الترتيب
+        const standingsRes = await fetch(`https://v3.football.api-sports.io/standings?league=${match.league.id}&season=${match.league.season}`, {
+          headers: { "x-apisports-key": apiKey }
+        });
+        const standingsData = await standingsRes.json();
+        const table = standingsData.response[0].league.standings[0];
+        const homeRank = table.find(t => t.team.id === match.teams.home.id)?.rank;
+        const awayRank = table.find(t => t.team.id === match.teams.away.id)?.rank;
 
-  $("generateBtn").disabled = false;
-  setStatus(`تم تحميل ${fixtures.length} مباراة. (المصدر: <code>${res.url}</code>)`);
-};
+        // قوالب متعددة
+        const templates = [
+          `في ${round} من ${league}، انتهت مواجهة ${home} و${away} بنتيجة ${goalsHome}-${goalsAway}. ${goalsText}${redCards}بعد اللقاء، ${home} في المركز ${homeRank} و${away} في المركز ${awayRank}.`,
+          `على أرض ${home}، استضاف الفريق ${away} ضمن ${round} من ${league}. المباراة انتهت ${goalsHome}-${goalsAway}. ${goalsText}${redCards}بهذا، ${home} يحتل المركز ${homeRank} بينما ${away} في المركز ${awayRank}.`,
+          `شهدت الجولة ${round} من ${league} مباراة بين ${home} و${away} انتهت بنتيجة ${goalsHome}-${goalsAway}. ${goalsText}${redCards}الترتيب بعد المباراة: ${home} في المركز ${homeRank} و${away} في المركز ${awayRank}.`
+        ];
 
-/* ========== News Generation ========== */
-let lastPayload = null, templateIdx = 0;
+        // اختيار قالب عشوائي
+        const news = templates[Math.floor(Math.random() * templates.length)];
 
-function buildReport(p){
-  const round = ($("roundLang").value === "arabic") ? toArabicRound(p.roundStr) : p.roundStr;
+        document.getElementById("newsOutput").value = news;
 
-  const goalsLine = p.goals.length
-    ? "أهداف المباراة جاءت عبر: " + p.goals.map(g => `${g.player} (${g.team}) في ${minuteArabic(g.minute)}`).join(" / ") + "."
-    : "";
+      } catch (err) {
+        document.getElementById("newsOutput").value = "حدث خطأ: " + err;
+      }
+    }
 
-  const redsLine = p.reds.length
-    ? "وشهد اللقاء حالات طرد: " + p.reds.map(r => `${r.player} (${r.team}) في ${minuteArabic(r.minute)}`).join(" / ") + "."
-    : "";
-
-  const outcome = (p.homeGoals>p.awayGoals) ? "انتصر" : (p.homeGoals<p.awayGoals) ? "خسر" : "تعادل";
-
-  const leadVariants = [
-    ()=>`${p.home} ${outcome==="انتصر"?"حصد":outcome==="خسر"?"فشل في نيل":"اقتسم"} النقاط أمام ${p.away} ضمن ${p.league}${round? " في "+round:""}، وانتهت المواجهة بنتيجة ${p.homeGoals}–${p.awayGoals}.`,
-    ()=>`ضمن ${p.league}${round? " ("+round+")": ""}، فرضت نتيجة ${p.homeGoals}–${p.awayGoals} كلمتها في مواجهة ${p.home} مع ${p.away}.`,
-    ()=>`حملت مواجهة ${p.home} و${p.away} في ${p.league}${round? " — "+round:""} إثارة كبيرة، وانتهت على وقع ${p.homeGoals}–${p.awayGoals}.`
-  ];
-  const midVariants = [
-    ()=>goalsLine,
-    ()=> goalsLine || "لم تُسجّل تفاصيل الأهداف في السجلات المتاحة.",
-    ()=> [goalsLine, redsLine].filter(Boolean).join(" ")
-  ];
-  const tailVariants = [
-    ()=>`وفي جدول الترتيب، يتموضع ${p.home} في المركز ${fmtNum(p.homePos)} بينما يحتل ${p.away} المرتبة ${fmtNum(p.awayPos)}.`,
-    ()=>`ترتيبيًا: ${p.home} (${fmtNum(p.homePos)}) و${p.away} (${fmtNum(p.awayPos)}).`,
-    ()=>`على صعيد الجدول، ${p.home} ${p.homePos} مقابل ${p.awayPos} لـ${p.away}.`
-  ];
-
-  return [
-    leadVariants[templateIdx % leadVariants.length](),
-    midVariants[templateIdx % midVariants.length](),
-    (redsLine && templateIdx % 2 === 1) ? "" : redsLine,
-    tailVariants[templateIdx % tailVariants.length]()
-  ].filter(Boolean).join("\n");
-}
-
-document.getElementById("generateBtn").onclick = async () => {
-  const sel = $("matchSelect").value;
-  if(!sel){ alert("اختر مباراة."); return; }
-  const { fixtureId, leagueId, season, homeId, awayId } = JSON.parse(sel);
-  setStatus(`جلب تفاصيل المباراة ${fixtureId}… <span class="spinner"></span>`);
-
-  try{
-    const fxData = await httpGet(`/fixtures?id=${fixtureId}`);
-    const fx = fxData.response?.[0];
-    if(!fx) throw new Error("لا توجد بيانات للمباراة.");
-
-    const leagueName = fx.league?.name || "الدوري";
-    const roundStr   = fx.league?.round || "";
-    const homeName   = fx.teams?.home?.name || "المضيف";
-    const awayName   = fx.teams?.away?.name || "الضيف";
-    const homeGoals  = fx.goals?.home ?? 0;
-    const awayGoals  = fx.goals?.away ?? 0;
-
-    const evData = await httpGet(`/fixtures/events?fixture=${fixtureId}`);
-    const ev = evData.response || [];
-    const goals = ev.filter(e => e.type === "Goal").map(e => ({
-      player: e.player?.name || "غير معلوم",
-      team: e.team?.name || "",
-      minute: e.time?.elapsed ?? ""
-    }));
-    const reds = ev.filter(e => e.detail === "Red Card").map(e => ({
-      player: e.player?.name || "غير معلوم",
-      team: e.team?.name || "",
-      minute: e.time?.elapsed ?? ""
-    }));
-
-    const stData = await httpGet(`/standings?league=${leagueId}&season=${season}`);
-    const groups = stData.response?.[0]?.league?.standings || [];
-    const table  = [].concat(...groups);
-    const homePos = table.find(r => r.team?.id === (homeId || fx.teams?.home?.id))?.rank ?? "—";
-    const awayPos = table.find(r => r.team?.id === (awayId || fx.teams?.away?.id))?.rank ?? "—";
-
-    lastPayload = {
-      league: leagueName, roundStr,
-      home: homeName, away: awayName,
-      homeGoals, awayGoals,
-      goals, reds, homePos, awayPos
-    };
-    templateIdx = 0;
-    $("newsOutput").value = buildReport(lastPayload);
-    $("rephraseBtn").disabled = false;
-    $("copyBtn").disabled = false;
-    setStatus("تم توليد الخبر.");
-  }catch(e){
-    setStatus(`<span class="text-danger">فشل توليد الخبر: ${e.message}</span>`);
-  }
-};
-
-document.getElementById("rephraseBtn").onclick = () => { if(lastPayload){ templateIdx++; $("newsOutput").value = buildReport(lastPayload); } };
-document.getElementById("copyBtn").onclick = async () => {
-  try{ await navigator.clipboard.writeText($("newsOutput").value); setStatus("✅ تم نسخ النص"); }
-  catch{ alert("لم يتم النسخ تلقائيًا. انسخ يدويًا."); }
-};
-document.getElementById("clearBtn").onclick = () => { $("newsOutput").value=""; setStatus(""); };
-</script>
+    loadMatches();
+  </script>
 </body>
 </html>
