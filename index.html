@@ -104,79 +104,76 @@
 </div>
 
 <script>
-const HOSTS = {
-  apisports: "https://v3.football.api-sports.io",
-  rapidapi: "https://api-football-v1.p.rapidapi.com/v3"
-};
-const $ = id => document.getElementById(id);
-
-function setStatus(msg){ $("statusArea").innerHTML = msg; }
-function fmtNum(n){ return new Intl.NumberFormat('ar-EG').format(n); }
-function minuteArabic(m){ return isNaN(m)?`الدقيقة ${m}`:`الدقيقة ${fmtNum(m)}`; }
-function toArabicRound(r){ const m=r?.match(/- (\\d+)/); return m?`الجولة ${m[1]}`:r; }
-
-function getHeaders(){
-  const key=$("apiKey").value.trim();
-  if(!key) throw new Error("أدخل API Key");
-  if($("provider").value==="apisports") return {"x-apisports-key":key};
-  return {"x-rapidapi-key":key,"x-rapidapi-host":"api-football-v1.p.rapidapi.com"};
-}
-function getLeagueId(){ return $("leagueIdManual").value.trim()||$("leagueSelect").value; }
-function getYMD(){ let d=new Date(); if($("daySelect").value==="yesterday")d.setDate(d.getDate()-1); return d.toISOString().slice(0,10); }
-
-async function httpGet(path){
-  const res=await fetch(HOSTS[$("provider").value]+path,{headers:getHeaders()});
-  if(!res.ok) throw new Error(await res.text());
-  return res.json();
+async function tryFixtures(urls) {
+  for (const u of urls) {
+    try {
+      const data = await httpGet(u);
+      const arr = data.response || [];
+      if (arr.length) return { ok: true, url: u, fixtures: arr };
+      var lastUrl = u; // keep last tried
+    } catch (e) {
+      // لو خطأ في أحد الروابط نجرّب الذي بعده
+      var lastError = e;
+    }
+  }
+  return { ok: false, url: lastUrl, fixtures: [], err: lastError };
 }
 
-$("loadMatchesBtn").onclick=async ()=>{
-  const id=getLeagueId(), ymd=getYMD();
-  setStatus("جلب المباريات...");
-  const data=await httpGet(`/fixtures?league=${id}&date=${ymd}&timezone=Asia/Qatar`);
-  const ms=data.response||[];
-  $("matchSelect").innerHTML="";
-  ms.forEach(m=>{
-    let opt=document.createElement("option");
-    opt.value=JSON.stringify({fixtureId:m.fixture.id,leagueId:id,season:m.league.season,homeId:m.teams.home.id,awayId:m.teams.away.id});
-    opt.textContent=`${m.teams.home.name} ضد ${m.teams.away.name} (${m.goals.home}:${m.goals.away})`;
+async function loadMatches(){
+  const leagueId = getLeagueId();
+  if(!leagueId){ alert("يرجى اختيار الدوري أو إدخال League ID."); return; }
+
+  const ymd = getYMD(); // تاريخ اليوم/الأمس من الواجهة
+  setStatus(`جلب مباريات ${ymd} للدوري ${leagueId}… <span class="spinner"></span>`);
+  $("matchSelect").innerHTML = `<option>جاري التحميل...</option>`;
+  $("generateBtn").disabled = true;
+
+  // محاولات ذكية
+  const urls = [
+    // 1) التاريخ مع توقيت قطر
+    `/fixtures?league=${encodeURIComponent(leagueId)}&date=${ymd}&timezone=Asia/Qatar`,
+    // 2) نفس اليوم بدون timezone
+    `/fixtures?league=${encodeURIComponent(leagueId)}&date=${ymd}`,
+    // 3) نطاق اليوم بالكامل بتوقيت قطر
+    `/fixtures?league=${encodeURIComponent(leagueId)}&from=${ymd}T00:00&to=${ymd}T23:59&timezone=Asia/Qatar`,
+    // 4) نطاق اليوم بدون تحديد الدوري (للتأكد من رجوع Matches) — سنرشّح محليًا
+    `/fixtures?from=${ymd}T00:00&to=${ymd}T23:59&timezone=Asia/Qatar`
+  ];
+
+  const res = await tryFixtures(urls);
+
+  let fixtures = res.fixtures;
+  // لو جلبنا بدون دوري في المحاولة 4، نرشّح محليًا
+  if (res.ok && res.url.startsWith("/fixtures?from=") && fixtures.length) {
+    fixtures = fixtures.filter(f => String(f.league?.id) === String(leagueId));
+  }
+
+  if (!res.ok || !fixtures.length) {
+    setStatus(`<span class="text-danger">لا توجد مباريات لمدخلاتك. آخر محاولة: <code>${res.url || "—"}</code>${res.err ? " — " + res.err : ""}</span>`);
+    $("matchSelect").innerHTML = `<option value="">لا مباريات</option>`;
+    return;
+  }
+
+  // تعبئة القائمة
+  $("matchSelect").innerHTML = "";
+  fixtures.forEach(f => {
+    const opt = document.createElement("option");
+    opt.value = JSON.stringify({
+      fixtureId: f.fixture.id,
+      leagueId: leagueId,
+      season: f.league?.season,
+      homeId: f.teams?.home?.id,
+      awayId: f.teams?.away?.id
+    });
+    opt.textContent = `${f.teams.home.name} ضد ${f.teams.away.name} — ${(f.goals.home ?? "")}:${(f.goals.away ?? "")}`;
     $("matchSelect").appendChild(opt);
   });
-  $("generateBtn").disabled=!ms.length;
-};
 
-let lastPayload={}, idx=0;
-function buildReport(p){
-  const round=$("roundLang").value==="arabic"?toArabicRound(p.round):p.round;
-  const goals=p.goals.length?"أهداف المباراة: "+p.goals.map(g=>`${g.player} (${g.team}) في ${minuteArabic(g.minute)}`).join(" / "):"";
-  const reds=p.reds.length?"البطاقات الحمراء: "+p.reds.map(r=>`${r.player} (${r.team}) في ${minuteArabic(r.minute)}`).join(" / "):"";
-  const lead=[`${p.home} و${p.away} تقابلا ضمن ${p.league} ${round}, وانتهت ${p.homeGoals}–${p.awayGoals}.`,
-              `في ${p.league}${round? " "+round:""}, انتهت المواجهة ${p.homeGoals}–${p.awayGoals} بين ${p.home} و${p.away}.`][idx%2];
-  const tail=`الترتيب: ${p.home} ${p.homePos}, ${p.away} ${p.awayPos}.`;
-  return [lead,goals,reds,tail].filter(Boolean).join("\\n");
+  $("generateBtn").disabled = false;
+  setStatus(`تم تحميل ${fixtures.length} مباراة. (المصدر: <code>${res.url}</code>)`);
 }
-
-$("generateBtn").onclick=async ()=>{
-  const {fixtureId,leagueId,season,homeId,awayId}=JSON.parse($("matchSelect").value);
-  const f=await httpGet(`/fixtures?id=${fixtureId}`);
-  const fx=f.response[0];
-  const e=await httpGet(`/fixtures/events?fixture=${fixtureId}`);
-  const goals=e.response.filter(x=>x.type==="Goal").map(x=>({player:x.player?.name,team:x.team?.name,minute:x.time?.elapsed}));
-  const reds=e.response.filter(x=>x.detail==="Red Card").map(x=>({player:x.player?.name,team:x.team?.name,minute:x.time?.elapsed}));
-  const s=await httpGet(`/standings?league=${leagueId}&season=${season}`);
-  const table=[].concat(...s.response[0].league.standings);
-  const homePos=table.find(r=>r.team.id===homeId)?.rank??"—";
-  const awayPos=table.find(r=>r.team.id===awayId)?.rank??"—";
-  lastPayload={league:fx.league.name,round:fx.league.round,home:fx.teams.home.name,away:fx.teams.away.name,
-              homeGoals:fx.goals.home,awayGoals:fx.goals.away,goals,reds,homePos,awayPos};
-  idx=0;
-  $("newsOutput").value=buildReport(lastPayload);
-  $("rephraseBtn").disabled=$("copyBtn").disabled=false;
-};
-
-$("rephraseBtn").onclick=()=>{ idx++; $("newsOutput").value=buildReport(lastPayload); };
-$("copyBtn").onclick=async()=>{ await navigator.clipboard.writeText($("newsOutput").value); setStatus("✅ نُسخ النص"); };
-$("clearBtn").onclick=()=>{ $("newsOutput").value=""; };
 </script>
+
 </body>
 </html>
+
