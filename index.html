@@ -213,6 +213,15 @@
           const {base, headers} = getHeaders();
           const data = await loadFixtures(dateEl.value, QATAR_TZ, headers, base);
           fixturesCache = (data.response||[]).filter(f=> f.league && f.teams && f.fixture);
+          // فلترة حسب أفضل 10 دوريات لو كان الخيار مفعَّل
+          const onlyTop10 = document.getElementById('onlyTop10').checked;
+          if(onlyTop10){
+            fixturesCache = fixturesCache.filter(f=> {
+              const idOk = TOP10_LEAGUE_IDS.has(f.league.id);
+              const fallbackOk = TOP10_BY_COUNTRY_NAME.some(t=> t.country===f.league.country && (String(f.league.name).includes(t.name)));
+              return (f.league.type==='League') && (idOk || fallbackOk);
+            });
+          };
 
           // بناء قائمة المباريات مجمّعة حسب الدوري
           matchesEl.innerHTML = '';
@@ -226,10 +235,10 @@
           for(const [key, list] of groups){
             const [leagueId, leagueName, season] = key.split('#');
             const optg = document.createElement('optgroup');
-            optg.label = `${leagueName} (${season})`;
+            optg.label = `${arName(leagueName)} (${season})`;
             for(const f of list){
               const o = document.createElement('option');
-              const h = f.teams.home.name; const a = f.teams.away.name;
+              const h = arName(f.teams.home.name); const a = arName(f.teams.away.name);
               const score = f.goals? `${f.goals.home??'-'}-${f.goals.away??'-'}` : '-';
               o.value = String(f.fixture.id);
               o.textContent = `${h} ${score} ${a} — ${arabicRound(f.league.round)}`;
@@ -299,9 +308,60 @@
     optgroup{color:#bcd2ff; font-weight:600}
     option{color:#eaf2ff}
   </style>
+  <script>
+    // ======== تخصيص إضافي: أفضل 10 دوريات أوروبية + تعريب ========
+    const TOP10_LEAGUE_IDS = new Set([39,135,140,78,61,88,94,144,203,344]);
+    const TOP10_BY_COUNTRY_NAME = [
+      {country:'England', name:'Premier League'},
+      {country:'Italy', name:'Serie A'},
+      {country:'Spain', name:'La Liga'},
+      {country:'Germany', name:'Bundesliga'},
+      {country:'France', name:'Ligue 1'},
+      {country:'Netherlands', name:'Eredivisie'},
+      {country:'Portugal', name:'Primeira Liga'},
+      {country:'Belgium', name:'Pro League'},
+      {country:'Turkey', name:'Super Lig'},
+      {country:'Czech Republic', name:'1. Liga'}
+    ];
+    const AR_OVERRIDES_KEY = 'ar_name_overrides_v1';
+    const AR_OVERRIDES_DEFAULT = {
+      'Premier League':'الدوري الإنجليزي الممتاز','La Liga':'الدوري الإسباني','Serie A':'الدوري الإيطالي','Bundesliga':'الدوري الألماني','Ligue 1':'الدوري الفرنسي','Eredivisie':'الدوري الهولندي','Primeira Liga':'الدوري البرتغالي','Pro League':'الدوري البلجيكي','Super Lig':'الدوري التركي','1. Liga':'الدوري التشيكي',
+      'Barcelona':'برشلونة','Real Madrid':'ريال مدريد','Atlético Madrid':'أتلتيكو مدريد','Real Sociedad':'ريال سوسييداد','Sevilla':'إشبيلية','Valencia':'فالنسيا','Athletic Club':'أتلتيك بلباو',
+      'Manchester City':'مانشستر سيتي','Manchester United':'مانشستر يونايتد','Liverpool':'ليفربول','Arsenal':'آرسنال','Chelsea':'تشيلسي','Tottenham':'توتنهام',
+      'Bayern Munich':'بايرن ميونخ','Borussia Dortmund':'بوروسيا دورتموند','RB Leipzig':'لايبزيغ','Bayer Leverkusen':'باير ليفركوزن',
+      'Juventus':'يوفنتوس','Inter':'إنتر','AC Milan':'ميلان','Napoli':'نابولي','Roma':'روما','Lazio':'لاتسيو','Atalanta':'أتلانتا',
+      'Paris Saint Germain':'باريس سان جيرمان','PSG':'باريس سان جيرمان','Monaco':'موناكو','Lille':'ليل','Lyon':'ليون','Marseille':'مارسيليا',
+      'Ajax':'أياكس','PSV Eindhoven':'بي إس في آيندهوفن','Feyenoord':'فينورد',
+      'Benfica':'بنفيكا','Porto':'بورتو','Sporting CP':'سبورتينغ لشبونة',
+      'Galatasaray':'غالطة سراي','Fenerbahce':'فنربخشه','Besiktas':'بشكتاش',
+      'Club Brugge':'كلوب بروج','Anderlecht':'أندرلخت'
+    };
+    function loadOverrides(){ try{ return {...AR_OVERRIDES_DEFAULT, ...(JSON.parse(localStorage.getItem(AR_OVERRIDES_KEY)||'{}'))}; }catch{ return {...AR_OVERRIDES_DEFAULT}; } }
+    function saveOverrides(map){ localStorage.setItem(AR_OVERRIDES_KEY, JSON.stringify(map)); }
+    let AR_OVERRIDES = loadOverrides();
+    function transliterateToArabic(s){ if(!s) return s; let out = s.toLowerCase(); const rules=[[/sch/g,'ش'],[/sh/g,'ش'],[/ch/g,'تش'],[/kh/g,'خ'],[/gh/g,'غ'],[/ph/g,'ف'],[/th/g,'ث'],[/ts/g,'تس']]; for(const [re,rep] of rules){ out = out.replace(re,rep);} const table={a:'ا',b:'ب',c:'ك',d:'د',e:'ي',f:'ف',g:'ج',h:'ه',i:'ي',j:'ج',k:'ك',l:'ل',m:'م',n:'ن',o:'و',p:'ب',q:'ق',r:'ر',s:'س',t:'ت',u:'و',v:'ف',w:'و',x:'كس',y:'ي',z:'ز','é':'ي','á':'ا','ó':'و','í':'ي','ú':'و','à':'ا','è':'ي','ö':'و','ü':'و','ä':'ا'}; out = out.split('').map(ch=> table[ch] ?? ch).join(''); return out; }
+    function arName(name){ if(!name) return ''; if(AR_OVERRIDES[name]) return AR_OVERRIDES[name]; const key = Object.keys(AR_OVERRIDES).find(k=> k.toLowerCase()===String(name).toLowerCase()); if(key) return AR_OVERRIDES[key]; return transliterateToArabic(name);} 
+  </script>
 </head>
 <body>
   <div class="wrap">
+    <div class="card" style="margin-bottom:12px">
+      <div class="row">
+        <div>
+          <label><input type="checkbox" id="onlyTop10" checked> اقتصار النتائج على أفضل 10 دوريات أوروبية</label>
+          <small>الدوريات: إنجلترا، إيطاليا، إسبانيا، ألمانيا، فرنسا، هولندا، البرتغال، بلجيكا، تركيا، التشيك.</small>
+        </div>
+        <div>
+          <label>تعريب الأسماء</label>
+          <div class="stack">
+            <button class="btn" id="exportDict" type="button">تصدير القاموس</button>
+            <button class="btn" id="importDict" type="button">استيراد/تعديل</button>
+            <button class="btn" id="resetDict" type="button">إعادة القاموس الافتراضي</button>
+          </div>
+          <small>يمكنك إضافة ترجمة عربية لأي اسم فريق/لاعب/دوري، وتُحفَظ محليًا.</small>
+        </div>
+      </div>
+    </div>
     <div class="card">
       <h1>⚽ محرر أخبار النتائج – (API-FOOTBALL v3)</h1>
       <div class="row">
