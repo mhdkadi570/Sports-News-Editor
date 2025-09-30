@@ -7,9 +7,11 @@
   <script>
     // ======== إعدادات عامة ========
     const QATAR_TZ = "Asia/Qatar";
-    // مفاتيح وثوابت API (غير ظاهرة للمستخدم)
-    const API_MODE = 'rapid';            // 'rapid' أو 'apisports'
-    const API_KEY  = 'API-KEY';    // الصقه هنا وسيُستخدم تلقائياً
+
+    // مفاتيح وثوابت API (ضمن الصفحة)
+    const API_MODE = 'apisports';            // 'apisports' أو 'rapid'
+    const API_KEY  = 'f26f793e3f4a1dae53104316d3979659'; // سيتم استخدامه تلقائياً
+
     // صيَغ عربية مساعدة
     function num(n){return new Intl.NumberFormat('ar-EG').format(n)}
     function pad(n){return (n<10?'0':'')+n}
@@ -71,16 +73,6 @@
 
     const AR_OVERRIDES_KEY = 'ar_name_overrides_v1';
     const AR_OVERRIDES_DEFAULT = {
-      'Ligue 1 Uber Eats':'الدوري الفرنسي',
-      'LaLiga':'الدوري الإسباني','LaLiga EA Sports':'الدوري الإسباني',
-      'Liga Portugal':'الدوري البرتغالي','Liga Portugal Betclic':'الدوري البرتغالي',
-      'Jupiler Pro League':'الدوري البلجيكي',
-      'Süper Lig':'الدوري التركي','Super Lig':'الدوري التركي',
-      'Fortuna Liga':'الدوري التشيكي',
-      'Paris Saint-Germain':'باريس سان جيرمان',
-      'Bayer 04 Leverkusen':'باير ليفركوزن',
-      'PSV':'بي إس في آيندهوفن',
-      'Sporting':'سبورتينغ لشبونة'
       'Premier League':'الدوري الإنجليزي الممتاز','EPL':'الدوري الإنجليزي الممتاز',
       'La Liga':'الدوري الإسباني','LaLiga':'الدوري الإسباني','LaLiga EA Sports':'الدوري الإسباني',
       'Serie A':'الدوري الإيطالي','Serie A TIM':'الدوري الإيطالي',
@@ -103,24 +95,10 @@
     };
     function loadOverrides(){ try{ return {...AR_OVERRIDES_DEFAULT, ...(JSON.parse(localStorage.getItem(AR_OVERRIDES_KEY)||'{}'))}; }catch{ return {...AR_OVERRIDES_DEFAULT}; } }
     function saveOverrides(map){ localStorage.setItem(AR_OVERRIDES_KEY, JSON.stringify(map)); }
-    function normalizeKey(s){
-  return String(s||'')
-    .toLowerCase()
-    .normalize('NFD').replace(/[\u0300-\u036f]/g,'') // إزالة التشكيل اللاتيني
-    .replace(/[\-_.]/g,' ')
-    .replace(/\s+/g,' ')
-    .trim();
-}
-const NORM_OVERRIDES = (()=>{ const o={}; for(const k of Object.keys(AR_OVERRIDES)){ o[normalizeKey(k)] = AR_OVERRIDES[k]; } return o; })();
     let AR_OVERRIDES = loadOverrides();
     function transliterateToArabic(s){ if(!s) return s; let out = s.toLowerCase(); const rules=[[/sch/g,'ش'],[/sh/g,'ش'],[/ch/g,'تش'],[/kh/g,'خ'],[/gh/g,'غ'],[/ph/g,'ف'],[/th/g,'ث'],[/ts/g,'تس']]; for(const [re,rep] of rules){ out = out.replace(re,rep);} const table={a:'ا',b:'ب',c:'ك',d:'د',e:'ي',f:'ف',g:'ج',h:'ه',i:'ي',j:'ج',k:'ك',l:'ل',m:'م',n:'ن',o:'و',p:'ب',q:'ق',r:'ر',s:'س',t:'ت',u:'و',v:'ف',w:'و',x:'كس',y:'ي',z:'ز','é':'ي','á':'ا','ó':'و','í':'ي','ú':'و','à':'ا','è':'ي','ö':'و','ü':'و','ä':'ا'}; out = out.split('').map(ch=> table[ch] ?? ch).join(''); return out; }
-      function arName(name){
-        if(!name) return '';
-        if (AR_OVERRIDES[name]) return AR_OVERRIDES[name];
-        const hit = NORM_OVERRIDES[ normalizeKey(name) ];
-        if (hit) return hit;
-        return transliterateToArabic(name);
-      }
+    function arName(name){ if(!name) return ''; if(AR_OVERRIDES[name]) return AR_OVERRIDES[name]; const key = Object.keys(AR_OVERRIDES).find(k=> k.toLowerCase()===String(name).toLowerCase()); if(key) return AR_OVERRIDES[key]; return transliterateToArabic(name);} 
+
 
     // تنسيق اسم الجولة من API-Football (مثال: "Regular Season - 7") إلى "الجولة السابعة"
     function arabicRound(round){
@@ -139,13 +117,13 @@ const NORM_OVERRIDES = (()=>{ const o={}; for(const k of Object.keys(AR_OVERRIDE
       const byTeam = {home: [], away: []};
       for(const g of goals){
         const who = (g.team?.id===homeId)?'home':'away';
-        const scorer = arName(g.player?.name || '—');
+        const scorer = g.player?.name || '—';
         const how = g.detail || '';// Normal Goal, Penalty, Own Goal
         const min = minuteText(g);
         let label = scorer;
         if(how.includes('Penalty')) label += ' (ركلة جزاء)';
         if(how.includes('Own Goal')) label += ' (هدف عكسي)';
-        if(g.assist?.name) label += `، صناعة ${arName(g.assist.name)}
+        if(g.assist?.name) label += `، صناعة ${g.assist.name}`;
         label += ` ${min}`;
         byTeam[who].push(label);
       }
@@ -155,7 +133,7 @@ const NORM_OVERRIDES = (()=>{ const o={}; for(const k of Object.keys(AR_OVERRIDE
     // استخراج البطاقات الحمراء
     function extractReds(events){
       return events.filter(e=> e.type==='Card' && /Red Card|Second Yellow card/i.test(e.detail||''))
-                   .map(e=> `${arName(e.player?.name||'—')} ${minuteText(e)}${e.detail==='Second Yellow card'?' (إنذار ثانٍ)':''}`);
+                   .map(e=> `${e.player?.name||'—'} ${minuteText(e)}${e.detail==='Second Yellow card'?' (إنذار ثانٍ)':''}`);
     }
 
     // جملة ترتيب مختصرة من جدول الترتيب
@@ -173,9 +151,9 @@ const NORM_OVERRIDES = (()=>{ const o={}; for(const k of Object.keys(AR_OVERRIDE
 
     // توليد نص الخبر
     function buildStory({fixture, events, standings}){
-      const L = {...fixture.league, name: arName(fixture.league?.name)};
-      const H = {...(fixture.teams?.home||{}), name: arName(fixture.teams?.home?.name)};
-      const A = {...(fixture.teams?.away||{}), name: arName(fixture.teams?.away?.name)};
+      const L = fixture.league;
+      const H = fixture.teams?.home;
+      const A = fixture.teams?.away;
       const score = fixture.score?.fulltime || fixture.goals || {home: H?.goals, away: A?.goals};
       const round = arabicRound(L?.round);
       const seed = String(fixture.fixture?.id||'0');
@@ -262,21 +240,15 @@ const NORM_OVERRIDES = (()=>{ const o={}; for(const k of Object.keys(AR_OVERRIDE
       const copyBtn = document.getElementById('copyBtn');
       const statusEl = document.getElementById('status');
 
-      // التاريخ: اليوم/الأمس فقط
-      let selectedDate = todayStr(0);
-      document.getElementById('today').addEventListener('click', ()=>{
-        selectedDate = todayStr(0);
-        statusEl.textContent = 'تم اختيار: مباريات اليوم';
-      });
-      document.getElementById('yesterday').addEventListener('click', ()=>{
-        selectedDate = todayStr(-1);
-        statusEl.textContent = 'تم اختيار: مباريات الأمس';
-      });
-      
+      // تعبئة التاريخ (اليوم/الأمس)
+      document.getElementById('today').addEventListener('click',()=>{dateEl.value=todayStr(0)});
+      document.getElementById('yesterday').addEventListener('click',()=>{dateEl.value=todayStr(-1)});
+      dateEl.value = todayStr(0);
+
       function getHeaders(){
         const key = API_KEY.trim();
         if(!key) throw new Error('لم يتم ضبط مفتاح الـAPI داخل الكود (API_KEY).');
-        if (API_MODE === 'rapid') {
+        if(API_MODE==='rapid'){
           return {
             base: 'https://api-football-v1.p.rapidapi.com/v3',
             headers: {
@@ -287,11 +259,22 @@ const NORM_OVERRIDES = (()=>{ const o={}; for(const k of Object.keys(AR_OVERRIDE
         } else {
           return {
             base: 'https://v3.football.api-sports.io',
-            headers: { 'x-apisports-key': key }
+            headers: {
+              'x-apisports-key': key
+            }
           }
         }
       }
-
+          }
+        } else {
+          return {
+            base: 'https://v3.football.api-sports.io',
+            headers: {
+              'x-apisports-key': key
+            }
+          }
+        }
+      }
 
       let fixturesCache = [];
 
@@ -299,13 +282,17 @@ const NORM_OVERRIDES = (()=>{ const o={}; for(const k of Object.keys(AR_OVERRIDE
         try{
           statusEl.textContent = '... جاري التحميل';
           const {base, headers} = getHeaders();
-          const data = await loadFixtures(selectedDate, QATAR_TZ, headers, base);
+          const data = await loadFixtures(dateEl.value, QATAR_TZ, headers, base);
           fixturesCache = (data.response||[]).filter(f=> f.league && f.teams && f.fixture);
           // فلترة حسب أفضل 10 دوريات لو كان الخيار مفعَّل
           const onlyTop10 = document.getElementById('onlyTop10').checked;
-          if (onlyTop10) {
-            fixturesCache = fixturesCache.filter(f => TOP10_LEAGUE_IDS.has(Number(f.league.id)));
-          }
+          if(onlyTop10){
+            fixturesCache = fixturesCache.filter(f=> {
+              const idOk = TOP10_LEAGUE_IDS.has(f.league.id);
+              const fallbackOk = TOP10_BY_COUNTRY_NAME.some(t=> t.country===f.league.country && (String(f.league.name).includes(t.name)));
+              return (f.league.type==='League') && (idOk || fallbackOk);
+            });
+          };
 
           // بناء قائمة المباريات مجمّعة حسب الدوري
           matchesEl.innerHTML = '';
@@ -415,8 +402,8 @@ const NORM_OVERRIDES = (()=>{ const o={}; for(const k of Object.keys(AR_OVERRIDE
     </div>
     <div class="card">
       <h1>⚽ محرر أخبار النتائج – (API-FOOTBALL v3)</h1>
-      <div class="row" style="display:none">        
-      <div>
+      <div class="row" style="display:none">
+        <div>
           <label>مزود الخدمة</label>
           <select id="provider">
             <option value="rapid">RapidAPI (أسهل للمتصفح)</option>
@@ -434,7 +421,7 @@ const NORM_OVERRIDES = (()=>{ const o={}; for(const k of Object.keys(AR_OVERRIDE
       <div class="row3" style="margin-top:10px">
         <div>
           <label>التاريخ</label>
-          <!-- تم إلغاء اختيار التاريخ اليدوي -->
+          <input id="date" type="date" />
           <div class="stack" style="margin-top:6px">
             <button class="btn" id="today" type="button">اليوم</button>
             <button class="btn" id="yesterday" type="button">الأمس</button>
@@ -477,4 +464,3 @@ const NORM_OVERRIDES = (()=>{ const o={}; for(const k of Object.keys(AR_OVERRIDE
   </div>
 </body>
 </html>
-
