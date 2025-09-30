@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>محرر أخبار النتائج – كرة القدم</title>
+  <script>
+    // ======== إعدادات عامة ========
+    const QATAR_TZ = "Asia/Qatar";
+
+    // صيَغ عربية مساعدة
+    function num(n){return new Intl.NumberFormat('ar-EG').format(n)}
+    function pad(n){return (n<10?'0':'')+n}
+    function todayStr(offsetDays=0){
+      const now = new Date();
+      // تحويل إلى توقيت قطر عبر UTC بتعويض بسيط (الاعتماد على timezone في API)
+      now.setDate(now.getDate()+offsetDays);
+      const y=now.getFullYear(), m=pad(now.getMonth()+1), d=pad(now.getDate());
+      return `${y}-${m}-${d}`;
+    }
+
+    // جزء بسيط لتوليد تنويعات لغوية حتى لا يكون النص مكررًا
+    function pick(arr, seed){
+      // اختيار ثابت يرتبط بالمباراة (seed) لضمان تنويع بدون عشوائية مطلقة
+      const i = Math.abs(hashCode(seed+arr.length)) % arr.length;
+      return arr[i];
+    }
+    function hashCode(s){let h=0;for(let i=0;i<s.length;i++){h=((h<<5)-h)+s.charCodeAt(i);h|=0}return h}
+
+    // تحويل دقائق الحدث إلى نص عربي (يشمل الوقت بدل الضائع)
+    function minuteText(ev){
+      const m = ev.time?.elapsed ?? null;
+      const et = ev.time?.extra ?? null;
+      if(m==null) return '';
+      if(et!=null){return `${num(m)}+${num(et)}`}
+      return `${num(m)}`;
+    }
+
+    // فواصل عربية أنيقة
+    const SEP_SENT = '، ';
+
+    // تنسيق اسم الجولة من API-Football (مثال: "Regular Season - 7") إلى "الجولة السابعة"
+    function arabicRound(round){
+      if(!round) return '';
+      const m = String(round).match(/(\d+)/);
+      if(!m) return round;
+      const n = parseInt(m[1],10);
+      const ordinals = ['الأولى','الثانية','الثالثة','الرابعة','الخامسة','السادسة','السابعة','الثامنة','التاسعة','العاشرة','الحادية عشرة','الثانية عشرة','الثالثة عشرة','الرابعة عشرة','الخامسة عشرة','السادسة عشرة','السابعة عشرة','الثامنة عشرة','التاسعة عشرة','العشرون'];
+      const word = n<=20? ordinals[n-1] : `الـ${num(n)}`;
+      return `الجولة ${word}`;
+    }
+
+    // استخراج ملخص الأهداف من قائمة الأحداث
+    function extractGoals(events, homeId, awayId){
+      const goals = events.filter(e=> e.type==='Goal');
+      const byTeam = {home: [], away: []};
+      for(const g of goals){
+        const who = (g.team?.id===homeId)?'home':'away';
+        const scorer = g.player?.name || '—';
+        const how = g.detail || '';// Normal Goal, Penalty, Own Goal
+        const min = minuteText(g);
+        let label = scorer;
+        if(how.includes('Penalty')) label += ' (ركلة جزاء)';
+        if(how.includes('Own Goal')) label += ' (هدف عكسي)';
+        if(g.assist?.name) label += `، صناعة ${g.assist.name}`;
+        label += ` ${min}`;
+        byTeam[who].push(label);
+      }
+      return byTeam;
+    }
+
+    // استخراج البطاقات الحمراء
+    function extractReds(events){
+      return events.filter(e=> e.type==='Card' && /Red Card|Second Yellow card/i.test(e.detail||''))
+                   .map(e=> `${e.player?.name||'—'} ${minuteText(e)}${e.detail==='Second Yellow card'?' (إنذار ثانٍ)':''}`);
+    }
+
+    // جملة ترتيب مختصرة من جدول الترتيب
+    function rankLine(standings, teamAId, teamBId, teamAName, teamBName){
+      if(!standings || !Array.isArray(standings)) return '';
+      const flat = standings.flat();
+      const A = flat.find(r=> r.team?.id===teamAId);
+      const B = flat.find(r=> r.team?.id===teamBId);
+      if(!A && !B) return '';
+      const parts = [];
+      if(A) parts.push(`${teamAName} في المركز ${num(A.rank)} بـ${num(A.points)} نقطة`);
+      if(B) parts.push(`${teamBName} في المركز ${num(B.rank)} بـ${num(B.points)} نقطة`);
+      return parts.length? `وبعد المباراة، ${parts.join('، بينما ') }.` : '';
+    }
+
+    // توليد نص الخبر
+    function buildStory({fixture, events, standings}){
+      const L = fixture.league;
+      const H = fixture.teams?.home;
+      const A = fixture.teams?.away;
+      const score = fixture.score?.fulltime || fixture.goals || {home: H?.goals, away: A?.goals};
+      const round = arabicRound(L?.round);
+      const seed = String(fixture.fixture?.id||'0');
+
+      const openers = [
+        'اعتلى','اعتزم','عزز','واصل','افتك','قبض','حسم','ظفر','عاد','قلب']
+      const winVerbs = ['الصدارة','القمة','نقاط المباراة','الفوز','التفوق'];
+      const drawVerbs = ['تعادلا','تقاسما النقاط','خرجا بنقطة']
+
+      // أهداف وبطاقات
+      const g = extractGoals(events, H?.id, A?.id);
+      const reds = extractReds(events);
+
+      const scoreText = `${H?.name} ${num(score.home)} – ${num(score.away)} ${A?.name}`;
+
+      // جمل الأهداف
+      function goalsChunk(){
+        const s = [];
+        if(g.home.length) s.push(`سجل للمضيف ${g.home.join('؛ ')}`);
+        if(g.away.length) s.push(`وسجل للضيف ${g.away.join('؛ ')}`);
+        return s.join('، ');
+      }
+
+      // بطاقات حمراء
+      const redsChunk = reds.length? `وشهدت المواجهة بطاقات حمراء للاعبين: ${reds.join('، ')}.` : '';
+
+      // مسار النتيجة
+      const whenFirstGoal = events.find(e=> e.type==='Goal');
+      const flow = whenFirstGoal ? (whenFirstGoal.team?.id===H?.id? 'تقدم صاحب الأرض أولاً' : 'تقدم الضيف أولاً')+` في الدقيقة ${minuteText(whenFirstGoal)}.` : '';
+
+      // نوع النتيجة
+      let lead = '';
+      if(score.home>score.away){
+        lead = `${pick(openers,seed)} ${pick(winVerbs,seed)} ${H?.name} ${round} من ${L?.name}، بتغلبه على ${A?.name} ${num(score.home)}-${num(score.away)}.`;
+      } else if(score.home<score.away){
+        lead = `${A?.name} ${pick(['خطف','ظفر','حقق','انتزع'],seed)} انتصارًا ثمينًا على مضيفه ${H?.name} ${round} من ${L?.name} بنتيجة ${num(score.away)}-${num(score.home)}.`;
+      } else {
+        lead = `${H?.name} و${A?.name} ${pick(drawVerbs,seed)} ${round} من ${L?.name} بنتيجة ${num(score.home)}-${num(score.away)}.`;
+      }
+
+      const body = [
+        flow,
+        goalsChunk() ? goalsChunk()+'.' : '',
+        redsChunk
+      ].filter(Boolean).join(' ');
+
+      const tableLine = rankLine(standings, H?.id, A?.id, H?.name, A?.name);
+
+      return `${lead} ${body} ${tableLine}`.replace(/\s+/g,' ').trim();
+    }
+
+    // ======== استدعاءات API ========
+    async function apiFetch(base, path, headers){
+      const url = `${base}${path}`;
+      const res = await fetch(url, {headers});
+      if(!res.ok){
+        const t = await res.text();
+        throw new Error(`HTTP ${res.status}: ${t}`);
+      }
+      return res.json();
+    }
+
+    async function loadFixtures(date, tz, headers, base){
+      return apiFetch(base, `/fixtures?date=${date}&timezone=${encodeURIComponent(tz)}`, headers);
+    }
+
+    async function loadEvents(fixtureId, headers, base){
+      return apiFetch(base, `/fixtures/events?fixture=${fixtureId}`, headers);
+    }
+
+    async function loadStandings(leagueId, season, headers, base){
+      return apiFetch(base, `/standings?league=${leagueId}&season=${season}`, headers);
+    }
+
+    // ======== واجهة المستخدم ========
+    window.addEventListener('DOMContentLoaded', () => {
+      const apiKeyEl = document.getElementById('apiKey');
+      const providerEl = document.getElementById('provider');
+      const loadBtn = document.getElementById('loadBtn');
+      const dateEl = document.getElementById('date');
+      const matchesEl = document.getElementById('matches');
+      const genBtn = document.getElementById('genBtn');
+      const outEl = document.getElementById('output');
+      const copyBtn = document.getElementById('copyBtn');
+      const statusEl = document.getElementById('status');
+
+      // تعبئة التاريخ (اليوم/الأمس)
+      document.getElementById('today').addEventListener('click',()=>{dateEl.value=todayStr(0)});
+      document.getElementById('yesterday').addEventListener('click',()=>{dateEl.value=todayStr(-1)});
+      dateEl.value = todayStr(0);
+
+      function getHeaders(){
+        const key = apiKeyEl.value.trim();
+        if(!key) throw new Error('أدخل مفتاح الـ API');
+        if(providerEl.value==='rapid'){
+          return {
+            base: 'https://api-football-v1.p.rapidapi.com/v3',
+            headers: {
+              'X-RapidAPI-Key': key,
+              'X-RapidAPI-Host': 'api-football-v1.p.rapidapi.com'
+            }
+          }
+        } else {
+          return {
+            base: 'https://v3.football.api-sports.io',
+            headers: {
+              'x-apisports-key': key
+            }
+          }
+        }
+      }
+
+      let fixturesCache = [];
+
+      loadBtn.addEventListener('click', async ()=>{
+        try{
+          statusEl.textContent = '... جاري التحميل';
+          const {base, headers} = getHeaders();
+          const data = await loadFixtures(dateEl.value, QATAR_TZ, headers, base);
+          fixturesCache = (data.response||[]).filter(f=> f.league && f.teams && f.fixture);
+
+          // بناء قائمة المباريات مجمّعة حسب الدوري
+          matchesEl.innerHTML = '';
+          const groups = new Map();
+          for(const f of fixturesCache){
+            const key = `${f.league.id}#${f.league.name}#${f.league.season}`;
+            if(!groups.has(key)) groups.set(key, []);
+            groups.get(key).push(f);
+          }
+
+          for(const [key, list] of groups){
+            const [leagueId, leagueName, season] = key.split('#');
+            const optg = document.createElement('optgroup');
+            optg.label = `${leagueName} (${season})`;
+            for(const f of list){
+              const o = document.createElement('option');
+              const h = f.teams.home.name; const a = f.teams.away.name;
+              const score = f.goals? `${f.goals.home??'-'}-${f.goals.away??'-'}` : '-';
+              o.value = String(f.fixture.id);
+              o.textContent = `${h} ${score} ${a} — ${arabicRound(f.league.round)}`;
+              o.dataset.leagueId = f.league.id;
+              o.dataset.season = f.league.season;
+              optg.appendChild(o);
+            }
+            matchesEl.appendChild(optg);
+          }
+
+          statusEl.textContent = `تم تحميل ${fixturesCache.length} مباراة.`;
+        }catch(err){
+          console.error(err);
+          statusEl.textContent = 'خطأ في التحميل: '+ (err.message||err);
+        }
+      });
+
+      genBtn.addEventListener('click', async ()=>{
+        try{
+          statusEl.textContent = '... يجري توليد الخبر';
+          const sel = matchesEl.selectedOptions[0];
+          if(!sel) throw new Error('اختر مباراة أولاً');
+          const fixtureId = sel.value;
+          const leagueId = sel.dataset.leagueId;
+          const season = sel.dataset.season;
+          const {base, headers} = getHeaders();
+
+          const fixture = fixturesCache.find(f=> String(f.fixture.id)===fixtureId);
+          const eventsRes = await loadEvents(fixtureId, headers, base);
+          const events = (eventsRes.response||[]);
+          const standingsRes = await loadStandings(leagueId, season, headers, base);
+          const standings = (standingsRes.response?.[0]?.league?.standings) || null; // مصفوفات داخلية
+
+          const text = buildStory({fixture, events, standings});
+          outEl.value = text;
+          statusEl.textContent = 'تم توليد النص.';
+        }catch(err){
+          console.error(err);
+          statusEl.textContent = 'تعذر توليد الخبر: '+(err.message||err);
+        }
+      });
+
+      copyBtn.addEventListener('click', async ()=>{
+        try{
+          await navigator.clipboard.writeText(outEl.value||'');
+          statusEl.textContent = 'تم النسخ إلى الحافظة.';
+        }catch{ statusEl.textContent = 'تعذر النسخ تلقائيًا – انسخ يدويًا.' }
+      });
+    });
+  </script>
+  <style>
+    :root{--bg:#0b1020;--card:#121b3a;--ink:#eaf2ff;--muted:#9bb0d3;--accent:#6aa0ff}
+    body{margin:0;font-family:system-ui,Segoe UI,Tahoma,Arial; background:var(--bg); color:var(--ink)}
+    .wrap{max-width:920px;margin:24px auto;padding:16px}
+    .card{background:linear-gradient(180deg,var(--card),#0f1731); border:1px solid #1d2b55; border-radius:16px; padding:16px; box-shadow:0 6px 30px rgba(0,0,0,.25)}
+    h1{font-size:1.25rem;margin:0 0 12px}
+    label{display:block;font-size:.9rem;color:var(--muted);margin:10px 0 6px}
+    input,select,textarea,button{width:100%; padding:10px 12px; border-radius:12px; border:1px solid #1e2a50; background:#0d1530; color:var(--ink)}
+    textarea{min-height:140px; resize:vertical}
+    .row{display:grid; grid-template-columns:1fr 1fr; gap:10px}
+    .row3{display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px}
+    .stack{display:flex; gap:8px}
+    .btn{cursor:pointer; background:var(--accent); color:#081026; border:none; font-weight:700}
+    .btn:active{transform:translateY(1px)}
+    small{color:var(--muted)}
+    .status{margin-top:6px; color:#a4c3ff}
+    optgroup{color:#bcd2ff; font-weight:600}
+    option{color:#eaf2ff}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <h1>⚽ محرر أخبار النتائج – (API-FOOTBALL v3)</h1>
+      <div class="row">
+        <div>
+          <label>مزود الخدمة</label>
+          <select id="provider">
+            <option value="rapid">RapidAPI (أسهل للمتصفح)</option>
+            <option value="apisports">API-SPORTS المباشر</option>
+          </select>
+          <small>إذا واجهت CORS، اختر RapidAPI.</small>
+        </div>
+        <div>
+          <label>مفتاح API</label>
+          <input id="apiKey" type="password" placeholder="ألصق المفتاح هنا" />
+          <small>المفتاح يبقى محليًا في المتصفح ولا يُخزَّن.</small>
+        </div>
+      </div>
+
+      <div class="row3" style="margin-top:10px">
+        <div>
+          <label>التاريخ</label>
+          <input id="date" type="date" />
+          <div class="stack" style="margin-top:6px">
+            <button class="btn" id="today" type="button">اليوم</button>
+            <button class="btn" id="yesterday" type="button">الأمس</button>
+          </div>
+        </div>
+        <div>
+          <label>تحميل المباريات</label>
+          <button class="btn" id="loadBtn" type="button">تحميل مباريات هذا التاريخ</button>
+          <small>يُستخدم توقيت قطر تلقائيًا.</small>
+        </div>
+        <div>
+          <label>اختر مباراة</label>
+          <select id="matches" size="6" style="height:120px"></select>
+        </div>
+      </div>
+
+      <div class="row" style="margin-top:10px">
+        <div>
+          <label>توليد نص الخبر</label>
+          <button class="btn" id="genBtn" type="button">حرّر الخبر بكبسة واحدة</button>
+          <div class="status" id="status"></div>
+        </div>
+        <div>
+          <label>الناتج</label>
+          <button class="btn" id="copyBtn" type="button">نسخ النص</button>
+        </div>
+      </div>
+
+      <label style="margin-top:10px">النص النهائي</label>
+      <textarea id="output" placeholder="سيظهر هنا نص الخبر جاهزًا للصياغة"></textarea>
+
+      <small>
+        يتضمن: اسم الدوري والجولة، النتيجة، مسار التسجيل، أسماء الهدافين ودقائقهم، البطاقات الحمراء (إن وجدت)، وخلاصة ترتيب الفريقين بعد المباراة.
+      </small>
+    </div>
+
+    <p style="opacity:.8; margin-top:12px">
+      ملاحظة: للحصول على جدول الترتيب، يجب أن تكون المسابقة مدعومة ببيانات Standings لنفس الموسم.
+    </p>
+  </div>
+</body>
+</html>
