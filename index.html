@@ -215,13 +215,11 @@
           fixturesCache = (data.response||[]).filter(f=> f.league && f.teams && f.fixture);
           // فلترة حسب أفضل 10 دوريات لو كان الخيار مفعَّل
           const onlyTop10 = document.getElementById('onlyTop10').checked;
-          if(onlyTop10){
-            fixturesCache = fixturesCache.filter(f=> {
-              const idOk = TOP10_LEAGUE_IDS.has(f.league.id);
-              const fallbackOk = TOP10_BY_COUNTRY_NAME.some(t=> t.country===f.league.country && (String(f.league.name).includes(t.name)));
-              return (f.league.type==='League') && (idOk || fallbackOk);
-            });
-          };
+          if (onlyTop10) {
+            fixturesCache = fixturesCache.filter(f => TOP10_LEAGUE_IDS.has(Number(f.league.id)));
+          }
+
+
 
           // بناء قائمة المباريات مجمّعة حسب الدوري
           matchesEl.innerHTML = '';
@@ -310,6 +308,18 @@
   </style>
   <script>
     // ======== تخصيص إضافي: أفضل 10 دوريات أوروبية + تعريب ========
+    const TOP10_LEAGUE_IDS = new Set([
+  39,   // Premier League (England)
+  135,  // Serie A (Italy)
+  140,  // La Liga (Spain)
+  78,   // Bundesliga (Germany)
+  61,   // Ligue 1 (France)
+  88,   // Eredivisie (Netherlands)
+  94,   // Primeira Liga / Liga Portugal (Portugal)
+  144,  // Belgian Pro League (Belgium)
+  203,  // Süper Lig (Turkey)
+  344   // Czech First League / Fortuna Liga (Czechia)
+]);
     const TOP10_LEAGUE_IDS = new Set([39,135,140,78,61,88,94,144,203,344]);
     const TOP10_BY_COUNTRY_NAME = [
       {country:'England', name:'Premier League'},
@@ -426,3 +436,4 @@
   </div>
 </body>
 </html>
+
